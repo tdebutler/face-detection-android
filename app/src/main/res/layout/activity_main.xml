@@ -8,26 +8,64 @@
     tools:context=".MainActivity">
 
     <TextView
-        android:id="@+id/textView"
+        android:id="@+id/imgNbTextView"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginLeft="5dp"
+        android:layout_marginRight="5dp"
+        android:padding="5dp"
+        android:text="@string/images_total"
+        android:textSize="18sp" />
+
+    <TextView
+        android:id="@+id/facesNbTextView"
         android:layout_width="match_parent"
         android:layout_height="40dp"
         android:layout_marginLeft="5dp"
         android:layout_marginRight="5dp"
         android:padding="5dp"
-        android:text="@string/images_total"
-        android:textSize="20dp" />
+        android:text="@string/faces_total"
+        android:textSize="18sp" />
 
     <Button
         android:id="@+id/detect_faces"
         android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:onClick="generateBoundingBoxes"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        style="@style/Widget.AppCompat.Button.Colored"
+        android:onClick="launchGenerateBoundingBoxesAsync"
         android:text="GENERATE BOUNDING BOXES" />
 
+    <Button
+        android:id="@+id/sharebbx"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        style="@style/Widget.AppCompat.Button.Borderless.Colored"
+        android:onClick="shareBoundingBoxes"
+        android:text="Share Bounding Boxes"/>
+
     <TextView
-        android:id="@+id/textView2"
+        android:id="@+id/progress_info"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/profiling_info"
+        android:layout_marginTop="10dp"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        android:padding="5dp"
+        android:textColor="#000"
+        android:background="@color/colorGrayBackground"/>
+
+    <TextView
+        android:id="@+id/bbxTextView"
         android:layout_width="match_parent"
         android:layout_height="fill_parent"
+        android:layout_marginTop="10dp"
+        android:padding="5dp"
         android:scrollbars="vertical"
         android:text="" />
 

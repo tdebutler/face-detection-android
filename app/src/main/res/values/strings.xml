@@ -1,4 +1,7 @@
 <resources>
-    <string name="app_name">Face Detector with Cascade Classifier</string>
-    <string name="images_total">Total number of images </string>
+    <string name="app_name">Face Detecting App</string>
+    <string name="images_total">Total number of images :</string>
+    <string name="faces_total">Total number of faces detected :</string>
+    <string name="send_to">Share</string>
+    <string name="profiling_info">Profiling info</string>
 </resources>

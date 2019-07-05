@@ -1,5 +1,7 @@
 package com.debutler.bfacedetectoropencv;
 
+import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
 import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
@@ -7,8 +9,9 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
-import android.media.ExifInterface;
+import androidx.exifinterface.media.ExifInterface;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.provider.MediaStore;
 import android.support.annotation.Nullable;
@@ -47,48 +50,46 @@ import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity {
 
-    private Mat originalMat;
-    private Bitmap originalBitmap;
-    private CascadeClassifier cascade;
-    private TextView imagesTotalNumber, showBoundingBoxes;
-    private final int CODE_MULTIPLE_LOAD = 1;
-    private final int READ_BLOCK_SIZE = 100;
+    private static final String TAG = "MainActivity";
 
+    private boolean areImagesReady = false;
+    private CascadeClassifier cascade;
+    private TextView imagesTotalNumber, facesTotalNumber, showBoundingBoxes, showProgressInfo;
+    private final int CODE_MULTIPLE_LOAD = 1;
     private ArrayList<Mat> mMats = new ArrayList<>();
     private ArrayList<String> mPaths = new ArrayList<>();
+    private int totalFacesN = 0;
 
-    // Loading OpenCV library and cascade classifier model
+    /**
+     * Loads OpenCV library and cascade classifier model at startup.
+     */
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
         @Override
         public void onManagerConnected(int status) {
-            switch (status) {
-                case LoaderCallbackInterface.SUCCESS: {
-                    Log.i("tag", "OpenCV loaded successfully");
-                    try {
-                        InputStream is = getResources().openRawResource(R.raw.haarcascade_frontalface_alt);
-                        File cascadeDir = getDir("cascade", Context.MODE_PRIVATE);
-                        File mCascadeFile = new File(cascadeDir, "cascade.xml");
-                        FileOutputStream os = new FileOutputStream(mCascadeFile);
+            if (status == LoaderCallbackInterface.SUCCESS) {
+                Log.i("tag", "OpenCV loaded successfully");
+                try {
+                    InputStream is = getResources().openRawResource(R.raw.haarcascade_frontalface_alt);
+                    File cascadeDir = getDir("cascade", Context.MODE_PRIVATE);
+                    File mCascadeFile = new File(cascadeDir, "cascade.xml");
+                    FileOutputStream os = new FileOutputStream(mCascadeFile);
 
-                        byte[] buffer = new byte[4096];
-                        int bytesRead;
-                        while((bytesRead = is.read(buffer)) != -1)
-                        {
-                            os.write(buffer, 0, bytesRead);
-                        }
-                        is.close();
-                        os.close();
-
-                        cascade = new CascadeClassifier(mCascadeFile.getAbsolutePath());
-                        if (cascade.empty())
-                        {
-                            Log.i("Cascade Error","Failed to load cascade classifier");
-                            cascade = null;
-                        }
-                    } catch (Exception e) {
-                        Log.i("Cascade Error: ", "Cascade not found");
+                    byte[] buffer = new byte[4096];
+                    int bytesRead;
+                    while ((bytesRead = is.read(buffer)) != -1) {
+                        os.write(buffer, 0, bytesRead);
                     }
-                } break;
+                    is.close();
+                    os.close();
+
+                    cascade = new CascadeClassifier(mCascadeFile.getAbsolutePath());
+                    if (cascade.empty()) {
+                        Log.i("Cascade Error", "Failed to load cascade classifier");
+                        cascade = null;
+                    }
+                } catch (Exception e) {
+                    Log.i("Cascade Error: ", "Cascade not found");
+                }
                 /* default:
                 {
                     super.onManagerConnected(status);
@@ -113,11 +114,16 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        imagesTotalNumber = (TextView) findViewById(R.id.textView);
-        showBoundingBoxes = (TextView) findViewById(R.id.textView2);
+        imagesTotalNumber = findViewById(R.id.imgNbTextView);
+        facesTotalNumber = findViewById(R.id.facesNbTextView);
+        showProgressInfo = findViewById(R.id.progress_info);
+        showBoundingBoxes = findViewById(R.id.bbxTextView);
         showBoundingBoxes.setMovementMethod(new ScrollingMovementMethod());
     }
 
+    /**
+     * Inflates the menu to allow loading of images
+     */
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         // Inflate the menu; this adds items to the action bar if present.
@@ -125,7 +131,11 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
-    // Launches onActivityResult if OPEN GALLERY is selected
+
+    /**
+     * Launches onActivityResult if OPEN GALLERY is selected.
+     */
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
@@ -140,7 +150,11 @@ public class MainActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    // Loads selected images from gallery and pre-processes them
+
+    /**
+     * Loads selected images from gallery and pre-processes them.
+     */
+    @SuppressLint("SetTextI18n")
     @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN)
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
@@ -153,6 +167,8 @@ public class MainActivity extends AppCompatActivity {
 
                 for (int i = 0; i < clipData.getItemCount(); i++) {
 
+                    long startTime = System.nanoTime(); // profiling purposes.
+
                     ClipData.Item item = clipData.getItemAt(i);
                     Uri uri = item.getUri();
                     Log.i("PICTURE URI: ", uri.toString());
@@ -161,13 +177,14 @@ public class MainActivity extends AppCompatActivity {
 
                     Log.i("PICTURE PATH: ", picturePath);
 
-                    //To speed up loading of image
+                    //To speed up loading of image.
                     BitmapFactory.Options options = new BitmapFactory.Options();
-                    options.inSampleSize = 1;
+                    options.inSampleSize = 1; // if > 1 will sub-sample the image
+                    // TODO : sub sample images only if too large. Do the same in Face Clustering App !
 
                     Bitmap temp = BitmapFactory.decodeFile(picturePath, options);
 
-                    //Get orientation information
+                    //Get orientation information.
                     int orientation = 0;
                     try {
                         ExifInterface imgParams = new ExifInterface(picturePath);
@@ -177,31 +194,37 @@ public class MainActivity extends AppCompatActivity {
                         e.printStackTrace();
                     }
 
-                    //Rotating the image to get the correct orientation
+                    //Rotating the image to get the correct orientation.
                     Matrix rotate90 = new Matrix();
                     rotate90.postRotate(orientation);
-                    originalBitmap = rotateBitmap(temp, orientation);
+                    Bitmap originalBitmap = rotateBitmap(temp, orientation);
 
-                    //Convert Bitmap to Mat
+                    //Convert Bitmap to Mat.
                     Bitmap tempBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true);
-                    originalMat = new Mat(tempBitmap.getHeight(), tempBitmap.getWidth(), CvType.CV_8U);
+                    Mat originalMat = new Mat(tempBitmap.getHeight(), tempBitmap.getWidth(), CvType.CV_8U);
+
                     Utils.bitmapToMat(tempBitmap, originalMat);
 
                     mMats.add(originalMat);
                     mPaths.add(picturePath);
-                    imagesTotalNumber.setText("Total number of images : " + mMats.size());
+
+                    long elapsedTime = System.nanoTime() - startTime;
+                    Log.i("LOADING IMAGES", "Loading image took " + elapsedTime/1000000 + " ms.");
                 }
+                areImagesReady = true;
+                imagesTotalNumber.setText("Total number of images : " + mMats.size());
             }
         }
     }
 
-    // to display the current Bitmap
-    //private void loadImageToImageView() {
-    //    ImageView imgView = (ImageView) findViewById(R.id.image_view);
-    //    imgView.setImageBitmap(currentBitmap);
-    //}
+//    // to display the current Bitmap
+//    private void loadImageToImageView() {
+//        ImageView imgView = (ImageView) findViewById(R.id.image_view);
+//        imgView.setImageBitmap(currentBitmap);
+//    }
 
-    //Rotate bitmap according to image parameters
+
+    /** Rotate bitmap according to image parameters */
     public static Bitmap rotateBitmap(Bitmap bitmap, int orientation) {
 
         Matrix matrix = new Matrix();
@@ -245,74 +268,131 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Detecting faces on a GRAY SCALE Mat and saving bounding boxes in rectangles array
+
+    /**
+     * Detects faces on a gray scale Mat and stores bounding boxes in rectangles array.
+     * Saves all data (bounding boxes & images paths) in a txt file to be later shared for clustering purposes.
+     *
+     * This function is launched as an async task by the launchGenerateBoundingBoxesAsync function.
+     */
+    @SuppressLint("SetTextI18n")
     @RequiresApi(api = Build.VERSION_CODES.KITKAT)
-    public void generateBoundingBoxes(View v) {
-        Log.i("ENTERING : ", "generateBondingBoxes function");
-        try {
-            FileOutputStream fileOut = openFileOutput("bounding-boxes.txt", MODE_PRIVATE);
-            OutputStreamWriter outputStreamWriter = new OutputStreamWriter(fileOut);
-            for (int i = 0; i < mMats.size(); i++) { // looping over the images
-                Log.i("LOOPING OVER : ", "image no. " + i);
-                Mat grayMat = convertToGrayMat(mMats.get(i));  // converting to grayscale
+    public void generateBoundingBoxes() {
+        Log.i("GENERATE BBX", "Running generateBoundingBoxes function");
 
-                MatOfRect faces = new MatOfRect();
-                if (cascade != null) {
-                    // use of cascade classifier model
-                    cascade.detectMultiScale(grayMat, faces, 1.1, 3, 2,
-                            new Size(2, 2), new Size());
+        if (areImagesReady) {
+            long startTime = System.nanoTime(); // profiling purposes
+
+            try {
+                FileOutputStream fileOut = openFileOutput("bounding-boxes.txt", MODE_PRIVATE);
+                OutputStreamWriter outputStreamWriter = new OutputStreamWriter(fileOut);
+                for (int i = 0; i < mMats.size(); i++) { // looping over the images
+                    Log.i("GENERATE BBX", "Looping over image no. " + i);
+
+                    final int finalI = i;
+                    runOnUiThread(() -> showProgressInfo.setText("Processing image " + (finalI+1) + " out of " + mMats.size()));
+
+                    // converting to gray scale
+                    Mat grayMat = new Mat(mMats.get(i).height(), mMats.get(i).width(), CvType.CV_8U);
+                    Imgproc.cvtColor(mMats.get(i), grayMat, Imgproc.COLOR_RGB2GRAY);
+
+                    MatOfRect faces = new MatOfRect();
+                    if (cascade != null) {
+                        // use of cascade classifier model
+                        cascade.detectMultiScale(grayMat, faces, 1.1, 3, 2,
+                                new Size(2, 2), new Size());
+                    }
+                    Rect[] facesArray = faces.toArray();
+
+                    for (int j = 0; j < facesArray.length; j++) { // looping over the faces in the image i
+                        Log.i("GENERATE BBX", "Looping over face no. " + j);
+                        totalFacesN++;
+                        Imgproc.rectangle(mMats.get(i), facesArray[j].tl(), facesArray[j].br(),
+                                new Scalar(320), 3);
+
+                        // path/--.jpg x-topleft y-topleft x-bottomright y-bottomright
+                        outputStreamWriter.write('\n' + mPaths.get(i).replaceAll(" ", "%20") + " "
+                                + ((int) facesArray[j].tl().x) + " "
+                                + ((int) facesArray[j].tl().y) + " "
+                                + ((int) facesArray[j].br().x) + " "
+                                + ((int) facesArray[j].br().y));
+                        Log.i("GENERATE BBX", "Adding\n" + mPaths.get(i).replaceAll(" ", "%20") + " "
+                                + ((int) facesArray[j].tl().x) + " "
+                                + ((int) facesArray[j].tl().y) + " "
+                                + ((int) facesArray[j].br().x) + " "
+                                + ((int) facesArray[j].br().y));
+                    }
+                    grayMat.release();
                 }
-                Rect[] facesArray = faces.toArray();
-
-                for (int j = 0; j < facesArray.length; j++) {  // looping over the faces in the image i
-                    Log.i("LOOPING OVER : ", "face no. " + j);
-                    Imgproc.rectangle(mMats.get(i), facesArray[j].tl(), facesArray[j].br(),
-                            new Scalar(320), 3);
-
-                    outputStreamWriter.write('\n' + mPaths.get(i) + " " + ((int) facesArray[j].tl().y) + " "
-                            + ((int) facesArray[j].br().y) + " " + ((int) facesArray[j].tl().x) + " "
-                            + ((int) facesArray[j].br().y));
-                    Log.i("ADDING : ", '\n' + mPaths.get(i) + " " + ((int) facesArray[j].tl().y) + " "
-                            + ((int) facesArray[j].br().y) + " " + ((int) facesArray[j].tl().x) + " "
-                            + ((int) facesArray[j].br().y));
-                }
+                outputStreamWriter.close();
+                runOnUiThread(() -> facesTotalNumber.setText("Total number of faces detected : " + totalFacesN));
+                runOnUiThread(() -> Toast.makeText(getBaseContext(), "File saved successfully", Toast.LENGTH_SHORT).show());
+            } catch (IOException e) {
+                e.printStackTrace();
             }
-            outputStreamWriter.close();
-            Toast.makeText(getBaseContext(), "File saved successfully",
-                    Toast.LENGTH_SHORT).show();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
 
+            // reading of the file to display it onscreen
+            try {
+                FileInputStream fileInputStream = openFileInput("bounding-boxes.txt");
+                InputStreamReader inputStreamReader = new InputStreamReader(fileInputStream);
+
+                int READ_BLOCK_SIZE = 100;
+                char[] inputBuffer = new char[READ_BLOCK_SIZE];
+                StringBuilder s = new StringBuilder();
+                int charRead;
+
+                while ((charRead = inputStreamReader.read(inputBuffer)) > 0) {
+                    String readString = String.copyValueOf(inputBuffer, 0, charRead);
+                    s.append(readString);
+                }
+                inputStreamReader.close();
+                runOnUiThread(() -> showBoundingBoxes.setText(s.toString()));
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            long elapsedTime = System.nanoTime() - startTime;
+            Log.i("GENERATE BBX", "Generating bounding boxes took in total " + elapsedTime / 1000000 + " ms.");
+            Log.i("GENERATE BBX", "Took on average " + elapsedTime / (1000000 * mMats.size()) + " ms per image");
+            runOnUiThread(() -> showProgressInfo.setText("Generating bounding boxes took on average " + elapsedTime / (1000000 * mMats.size()) + " ms per image"));
+        } else {
+            Toast.makeText(getBaseContext(), "No images have been selected.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+
+    /**
+     * To share the bounding boxes data txt file to another app (expected to be Face Clustering App)
+     */
+    public void shareBoundingBoxes(View v) {
+        Intent sendIntent = new Intent();
+        sendIntent.setAction(Intent.ACTION_SEND);
+        StringBuilder s = new StringBuilder();
         try {
             FileInputStream fileInputStream = openFileInput("bounding-boxes.txt");
             InputStreamReader inputStreamReader = new InputStreamReader(fileInputStream);
-
+            int READ_BLOCK_SIZE = 100;
             char[] inputBuffer = new char[READ_BLOCK_SIZE];
-            String s = "";
-            int charRead;
 
+            int charRead;
+            Log.i("READING", "bounding-boxes.txt");
             while ((charRead = inputStreamReader.read(inputBuffer)) > 0) {
                 String readString = String.copyValueOf(inputBuffer, 0, charRead);
-                s += readString;
+                s.append(readString);
             }
             inputStreamReader.close();
-            showBoundingBoxes.setText(s);
         } catch (IOException e) {
             e.printStackTrace();
         }
-
+        sendIntent.putExtra(Intent.EXTRA_TEXT, s.toString());
+        sendIntent.setType("text/plain");
+        startActivity(Intent.createChooser(sendIntent, getResources().getText(R.string.send_to)));
     }
 
 
-    // PRE PROCESSING : Converting RGB Mat to GRAY Mat
-    public Mat convertToGrayMat(Mat originalMat) {
-        Mat grayMat = new Mat(originalMat.height(), originalMat.width(), CvType.CV_8U);
-        Imgproc.cvtColor(originalMat, grayMat, Imgproc.COLOR_RGB2GRAY);
-        return grayMat;
-    }
-
-
+    /**
+     * Used to get the real path of an image.
+     */
     private String getRealPathFromURI(Uri contentURI) {
         String result;
         Cursor cursor = getContentResolver().query(contentURI, null, null, null, null);
@@ -326,5 +406,46 @@ public class MainActivity extends AppCompatActivity {
         }
         return result;
     }
+
+
+    /**
+     * Launches the generateBoundingBoxes function as an Async Task to allow
+     * the dynamic displaying of info on the UI.
+     */
+    public void launchGenerateBoundingBoxesAsync(View view) {
+        new GenerateBoundingBoxesAsync().execute();
+    }
+    private class GenerateBoundingBoxesAsync extends AsyncTask<Void, Void, Void>{
+        @androidx.annotation.RequiresApi(api = Build.VERSION_CODES.KITKAT)
+        @Override
+        protected Void doInBackground(Void... params) {
+            generateBoundingBoxes();
+            return null;
+        }
+    }
+
+
+
+
+//    public Mat resizeIfTooBig(Mat originalMat){
+//        // Resize images when too big.
+//        int width = originalMat.width();
+//        int height = originalMat.height();
+//        int threshold;
+//        if (width < height) { threshold = width; } else { threshold = height; }
+//        Mat resizedMat = new Mat();
+//        Size sz = new Size(width, height);
+//        if (threshold > 5000) {
+//            sz = new Size(0.8*width, 0.8*height);
+//        } else if (threshold > 4000) {
+//            sz = new Size(0.6*width, 0.6*height);
+//        } else if (threshold > 3000) {
+//            sz = new Size(0.4*width, 0.4*height);
+//        } else if (threshold > 2000) {
+//            sz = new Size(0.2*width, 0.2*height);
+//        }
+//        Imgproc.resize(originalMat, resizedMat, sz);
+//        return resizedMat;
+//    }
 }
 
