@@ -11,8 +11,6 @@ These instructions will get you a copy of the project up and running on your loc
 
 ### Prerequisites
 
-What things you need to install the software and how to install them
-
 The open-source OpenCV library for Android
 ```
 Give examples
@@ -36,30 +34,10 @@ until finished
 
 End with an example of getting some data out of the system or using it for a little demo
 
-## Running the tests
+## Usage
 
-Explain how to run the automated tests for this system
-
-### Break down into end to end tests
-
-Explain what these tests test and why
-
-```
-Give an example
-```
-
-### And coding style tests
-
-Explain what these tests test and why
-
-```
-Give an example
-```
-
-## Deployment
-
-Add additional notes about how to deploy this on a live system
-
+This app writes a text files containing info about the faces bounding boxes.
+This file can be shared to the [Face Clustering app](https://evcs.photoprintit.lan/maic/face-clustering-praktikumsprojekt) in order to perform clustering of the faces.
 
 ## Versioning
 
