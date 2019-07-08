@@ -1,4 +1,4 @@
-# Face Detection Praktikumsprojekt
+# Face Detection Android App
 
 This is a simple face detection app using the OpenCV library.
 It was developed as an internship project.
