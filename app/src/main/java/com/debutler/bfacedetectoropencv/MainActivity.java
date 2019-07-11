@@ -1,10 +1,12 @@
 package com.debutler.bfacedetectoropencv;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -14,14 +16,18 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.RequiresApi;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -34,6 +40,7 @@ import org.opencv.android.Utils;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfRect;
+import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
@@ -52,14 +59,17 @@ import java.util.ArrayList;
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
+    private static final int REQUEST_CODE = 2;
 
     private boolean areImagesReady = false;
     private CascadeClassifier cascade;
     private TextView imagesTotalNumber, facesTotalNumber, showBoundingBoxes, showProgressInfo;
+//    private ImageView showImage;
     private final int CODE_MULTIPLE_LOAD = 1;
     private ArrayList<Mat> mMats = new ArrayList<>();
     private ArrayList<String> mPaths = new ArrayList<>();
     private int totalFacesN = 0;
+    private double currentScale = 1;
 
     /**
      * Loads OpenCV library and cascade classifier model at startup.
@@ -120,6 +130,10 @@ public class MainActivity extends AppCompatActivity {
         showProgressInfo = findViewById(R.id.progress_info);
         showBoundingBoxes = findViewById(R.id.bbxTextView);
         showBoundingBoxes.setMovementMethod(new ScrollingMovementMethod());
+//        showImage = findViewById(R.id.imageView);
+
+        // TODO : why is it repeatedly called ?
+        //verifyPermissions();    // verifying if access to external storage is granted.
     }
 
     /**
@@ -178,12 +192,7 @@ public class MainActivity extends AppCompatActivity {
 
                     Log.i("PICTURE PATH: ", picturePath);
 
-                    //To speed up loading of image.
-                    BitmapFactory.Options options = new BitmapFactory.Options();
-                    options.inSampleSize = 1; // if > 1 will sub-sample the image
-                    // TODO : sub sample images only if too large. Do the same in Face Clustering App !
-
-                    Bitmap temp = BitmapFactory.decodeFile(picturePath, options);
+                    Bitmap temp = BitmapFactory.decodeFile(picturePath);
 
                     //Get orientation information.
                     int orientation = 0;
@@ -217,13 +226,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-
-//    // to display the current Bitmap
-//    private void loadImageToImageView() {
-//        ImageView imgView = (ImageView) findViewById(R.id.image_view);
-//        imgView.setImageBitmap(currentBitmap);
-//    }
-
 
     /** Rotate bitmap according to image parameters */
     public static Bitmap rotateBitmap(Bitmap bitmap, int orientation) {
@@ -293,9 +295,16 @@ public class MainActivity extends AppCompatActivity {
                     final int finalI = i;
                     runOnUiThread(() -> showProgressInfo.setText("Processing image " + (finalI+1) + " out of " + mMats.size()));
 
+                    // resizing image if too big
+//                    Mat resizedMat = resizeIfTooBig(mMats.get(i));
+                    Mat resizedMat = mMats.get(i);
+                    int width = resizedMat.width();
+                    int height = resizedMat.height();
+                    Log.d(TAG, "generateBoundingBoxes: w is " + width + ", h is " + height);
+
                     // converting to gray scale
-                    Mat grayMat = new Mat(mMats.get(i).height(), mMats.get(i).width(), CvType.CV_8U);
-                    Imgproc.cvtColor(mMats.get(i), grayMat, Imgproc.COLOR_RGB2GRAY);
+                    Mat grayMat = new Mat(resizedMat.height(), resizedMat.width(), CvType.CV_8U);
+                    Imgproc.cvtColor(resizedMat, grayMat, Imgproc.COLOR_RGB2GRAY);
 
                     MatOfRect faces = new MatOfRect();
                     if (cascade != null) {
@@ -308,20 +317,31 @@ public class MainActivity extends AppCompatActivity {
                     for (int j = 0; j < facesArray.length; j++) { // looping over the faces in the image i
                         Log.i("GENERATE BBX", "Looping over face no. " + j);
                         totalFacesN++;
-                        Imgproc.rectangle(mMats.get(i), facesArray[j].tl(), facesArray[j].br(),
-                                new Scalar(320), 3);
+                        int rescaledTop = (int) Math.round((facesArray[j].tl().y)/currentScale);
+                        int rescaledLeft = (int) Math.round((facesArray[j].tl().x)/currentScale);
+                        int rescaledBottom = (int) Math.round((facesArray[j].br().y)/currentScale);
+                        int rescaledRight = (int) Math.round((facesArray[j].br().x)/currentScale);
+
+                        // for testing purposes
+//                        Point tL = new Point(rescaledLeft, rescaledTop);
+//                        Point bR = new Point(rescaledRight, rescaledBottom);
+//                        Imgproc.rectangle(mMats.get(i), tL, bR,
+//                                new Scalar(320), 3);
+//                        Bitmap temp = BitmapFactory.decodeFile(mPaths.get(i));
+//                        Utils.matToBitmap(mMats.get(i), temp);
+//                        runOnUiThread(() -> showImage.setImageBitmap(temp));
 
                         // path/--.jpg x-topleft y-topleft x-bottomright y-bottomright
                         outputStreamWriter.write('\n' + mPaths.get(i).replaceAll(" ", "%20") + " "
-                                + ((int) facesArray[j].tl().x) + " "
-                                + ((int) facesArray[j].tl().y) + " "
-                                + ((int) facesArray[j].br().x) + " "
-                                + ((int) facesArray[j].br().y));
+                                + rescaledLeft + " "
+                                + rescaledTop + " "
+                                + rescaledRight + " "
+                                + rescaledBottom);
                         Log.i("GENERATE BBX", "Adding\n" + mPaths.get(i).replaceAll(" ", "%20") + " "
-                                + ((int) facesArray[j].tl().x) + " "
-                                + ((int) facesArray[j].tl().y) + " "
-                                + ((int) facesArray[j].br().x) + " "
-                                + ((int) facesArray[j].br().y));
+                                + rescaledLeft + " "
+                                + rescaledTop + " "
+                                + rescaledRight + " "
+                                + rescaledBottom);
                     }
                     grayMat.release();
                 }
@@ -426,27 +446,51 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
+    /** checks if the app has access to external storage at startup. */
+    private void verifyPermissions(){
+        Log.d(TAG, "verifyPermissions: asking user for permissions");
+        String[] permissions = {Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE};
+        if(ContextCompat.checkSelfPermission(this.getApplicationContext(),
+                permissions[0]) == PackageManager.PERMISSION_GRANTED
+                && ContextCompat.checkSelfPermission(this.getApplicationContext(),
+                permissions[1]) == PackageManager.PERMISSION_GRANTED){
+            Log.d(TAG, "verifyPermissions: permission already granted.");
+        } else {
+            ActivityCompat.requestPermissions(MainActivity.this, permissions, REQUEST_CODE);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        verifyPermissions();
+    }
 
 
-//    public Mat resizeIfTooBig(Mat originalMat){
-//        // Resize images when too big.
-//        int width = originalMat.width();
-//        int height = originalMat.height();
-//        int threshold;
-//        if (width < height) { threshold = width; } else { threshold = height; }
-//        Mat resizedMat = new Mat();
-//        Size sz = new Size(width, height);
-//        if (threshold > 5000) {
-//            sz = new Size(0.8*width, 0.8*height);
-//        } else if (threshold > 4000) {
-//            sz = new Size(0.6*width, 0.6*height);
-//        } else if (threshold > 3000) {
-//            sz = new Size(0.4*width, 0.4*height);
-//        } else if (threshold > 2000) {
-//            sz = new Size(0.2*width, 0.2*height);
-//        }
-//        Imgproc.resize(originalMat, resizedMat, sz);
-//        return resizedMat;
-//    }
+    public Mat resizeIfTooBig(Mat originalMat){
+        Log.d(TAG, "resizeIfTooBig: running");
+        // Resize images when too big.
+        int width = originalMat.width();
+        int height = originalMat.height();
+        int threshold;
+        if (width < height) { threshold = width; } else { threshold = height; }
+        Mat resizedMat = new Mat();
+        Size sz;
+        double scale = 1;
+        if (threshold > 5000) {
+            scale = 0.8;
+        } else if (threshold > 4000) {
+            scale = 0.6;
+        } else if (threshold > 3000) {
+            scale = 0.4;
+        } else if (threshold > 2000) {
+            scale = 0.2;
+        }
+        Log.d(TAG, "resizeIfTooBig: scale is " + scale);
+        sz = new Size(scale*width, scale*height);
+        Imgproc.resize(originalMat, resizedMat, sz);
+        currentScale = scale;
+        return resizedMat;
+    }
 }
 
